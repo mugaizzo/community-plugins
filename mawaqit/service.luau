@@ -442,9 +442,12 @@ local function processPrayerData(data)
     noctalia.state.set("isJumuah",      isJumuah())
     noctalia.state.set("error",         "")
 
-    loadedDate     = todayStr()
-    lastNotified   = ""
-    lastAzanPlayed = ""
+    local fetchedDate = todayStr()
+    if loadedDate ~= fetchedDate then
+        lastNotified   = ""
+        lastAzanPlayed = ""
+    end
+    loadedDate = fetchedDate
     retryCount     = 0
     retryAt        = 0
 
@@ -620,7 +623,9 @@ local function stopAzan()
 end
 
 local function startAzan()
-    stopAzan()
+    -- A fetch or repeated command must not restart an Azan already in progress.
+    if playingAzanPath ~= "" then return true end
+
     local path = azanPath()
     if path == "" or not noctalia.fileExists(path) then
         if path ~= "" then noctalia.log("Mawaqit: azan file not found: " .. path) end
