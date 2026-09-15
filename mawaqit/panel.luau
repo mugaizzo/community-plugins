@@ -210,6 +210,38 @@ local function upcomingEvent()
     return nil
 end
 
+-- Renders a single calendar day cell: a bold Hijri day number on top, a
+-- small muted Gregorian day number underneath, and a small dot marker when
+-- an Islamic event falls on that day. "Today" gets a filled primary
+-- background so it's visually distinct from the weekday header's own accent.
+local function dayCell(key, day, gregorianDay, isToday, event)
+    local numberColor = isToday and "on_primary" or (event and "tertiary" or "on_surface")
+    local subColor    = isToday and "on_primary" or "on_surface_variant"
+
+    local children = {
+        ui.label({ text = tostring(day), fontSize = 13, fontWeight = "bold", color = numberColor }),
+    }
+    if gregorianDay ~= "" then
+        children[#children + 1] = ui.label({ text = gregorianDay, fontSize = 9, color = subColor })
+    end
+    if event then
+        children[#children + 1] = ui.label({ text = "•", fontSize = 7,
+            color = isToday and "on_primary" or "tertiary" })
+    end
+
+    return ui.column({
+        key      = key,
+        align    = "center",
+        justify  = "center",
+        gap      = 1,
+        flexGrow = 1,
+        height   = 48,
+        fill     = isToday and "primary" or "surface_variant/0.35",
+        radius   = 12,
+        tooltip  = event and event.ar or nil,
+    }, children)
+end
+
 local function calendarView()
     local expectedKey = calendarRequestKey()
     local days = calendarKey == expectedKey and calendarData or {}
@@ -222,14 +254,14 @@ local function calendarView()
     local content = {
         ui.row({ align = "center", justify = "space_between" }, {
             ui.button({ glyph = "chevron-left", variant = "ghost", tooltip = noctalia.tr("calendar.previous"), onClick = "onCalendarPrevious" }),
-            ui.label({ text = monthTitle .. " " .. tostring(calendarYear), fontSize = 15,
+            ui.label({ text = monthTitle .. " " .. tostring(calendarYear), fontSize = 13,
                 fontWeight = "semibold", color = calendarMonth == 9 and "primary" or "on_surface" }),
             ui.button({ glyph = "chevron-right", variant = "ghost", tooltip = noctalia.tr("calendar.next"), onClick = "onCalendarNext" }),
         }),
     }
 
     if calendarMonth ~= hijriMonth or calendarYear ~= hijriYear then
-        content[#content + 1] = ui.button({ text = noctalia.tr("calendar.today"), variant = "ghost", onClick = "onCalendarToday" })
+        content[#content + 1] = ui.button({ text = noctalia.tr("calendar.today"), variant = "ghost", height = 26, fontSize = 11, onClick = "onCalendarToday" })
     end
 
     local event, daysAway = upcomingEvent()
@@ -237,47 +269,48 @@ local function calendarView()
         local when = daysAway == 0 and noctalia.tr("calendar.today_label")
             or noctalia.tr("calendar.in_days", { days = daysAway })
         content[#content + 1] = ui.label({ text = when .. "  " .. event.ar, fontFamily = decoFont,
-            fontSize = 13, color = "tertiary", align = "center" })
+            fontSize = 12, color = "tertiary", align = "center" })
     end
 
     local start = weekStartDay()
     local headers = {}
     for index = 0, 6 do
         local weekday = WEEKDAYS[(start + index) % 7 + 1]
-        headers[#headers + 1] = ui.label({ text = weekday, flexGrow = 1, align = "center",
-            color = weekday == "Fr" and "primary" or "on_surface_variant", fontSize = 11 })
+        headers[#headers + 1] = ui.column({
+            align = "center", justify = "center", flexGrow = 1, height = 20,
+        }, {
+            ui.label({ text = weekday, align = "center",
+                color = weekday == "Fr" and "secondary" or "on_surface_variant", fontSize = 10, fontWeight = "semibold" }),
+        })
     end
-    content[#content + 1] = ui.row({ gap = 2, align = "center" }, headers)
+    content[#content + 1] = ui.row({ gap = 4, align = "center", paddingH = 3 }, headers)
 
     if #days == 0 then
         content[#content + 1] = ui.label({
             text = calendarStatus == "error" and calendarError or noctalia.tr("calendar.loading"),
             color = calendarStatus == "error" and "error" or "on_surface_variant", align = "center", paddingV = 24,
         })
-        return ui.column({ gap = 8 }, content)
+        return ui.column({ gap = 4 }, content)
     end
 
     local first = days[1].gregorian and days[1].gregorian.date or ""
     local leading = (weekdayIndex(first) - start + 7) % 7
     local cells, rows = {}, {}
-    for _ = 1, leading do cells[#cells + 1] = ui.spacer({ flexGrow = 1 }) end
+    for _ = 1, leading do cells[#cells + 1] = ui.column({ flexGrow = 1, height = 48 }, {}) end
     for index, entry in ipairs(days) do
         local day = tonumber(entry.hijri and entry.hijri.day) or index
         local gregorianDay = entry.gregorian and entry.gregorian.day or ""
         local isToday = calendarMonth == hijriMonth and calendarYear == hijriYear and day == currentHijriDay()
-        local event = eventFor(calendarMonth, day)
-        local text = tostring(day) .. (event and " *" or "") .. (gregorianDay ~= "" and "\n" .. gregorianDay or "")
-        cells[#cells + 1] = ui.button({ key = "calendar-" .. expectedKey .. "-" .. day, text = text,
-            variant = isToday and "primary" or "ghost", flexGrow = 1, height = 40,
-            tooltip = event and event.ar or nil })
+        local dayEvent = eventFor(calendarMonth, day)
+        cells[#cells + 1] = dayCell("calendar-" .. expectedKey .. "-" .. day, day, gregorianDay, isToday, dayEvent)
         if #cells == 7 then
-            rows[#rows + 1] = ui.row({ gap = 2, align = "center" }, cells)
+            rows[#rows + 1] = ui.row({ gap = 4, align = "center" }, cells)
             cells = {}
         end
     end
-    while #cells > 0 and #cells < 7 do cells[#cells + 1] = ui.spacer({ flexGrow = 1 }) end
-    if #cells > 0 then rows[#rows + 1] = ui.row({ gap = 2, align = "center" }, cells) end
-    content[#content + 1] = ui.column({ gap = 2 }, rows)
+    while #cells > 0 and #cells < 7 do cells[#cells + 1] = ui.column({ flexGrow = 1, height = 48 }, {}) end
+    if #cells > 0 then rows[#rows + 1] = ui.row({ gap = 4, align = "center" }, cells) end
+    content[#content + 1] = ui.column({ gap = 4 }, rows)
     if calendarStatus == "loading" then
         content[#content + 1] = ui.label({ text = noctalia.tr("calendar.loading"), fontSize = 11,
             color = "on_surface_variant", align = "center" })
@@ -291,9 +324,9 @@ local function calendarView()
                 fontFamily = decoFont, fontSize = 15, color = "primary", align = "center", paddingV = 8,
             })
         else
-            local event = eventFor(calendarMonth, day)
-            if event then
-                content[#content + 1] = ui.label({ text = "* " .. event.ar, fontFamily = decoFont,
+            local dayEvent = eventFor(calendarMonth, day)
+            if dayEvent then
+                content[#content + 1] = ui.label({ text = "* " .. dayEvent.ar, fontFamily = decoFont,
                     fontSize = 15, color = "tertiary", align = "center" })
             end
             local hadith = dailyHadith()
@@ -304,7 +337,7 @@ local function calendarView()
                 color = "on_surface_variant", align = "center" })
         end
     end
-    return ui.column({ gap = 8 }, content)
+    return ui.column({ gap = 4 }, content)
 end
 
 local function initializeCalendar()
@@ -343,20 +376,20 @@ local function render()
         if decoFont and decoFont ~= "" and hijriDateAr ~= "" then
             hijriLabel = ui.label({
                 text       = hijriDateAr,
-                fontSize   = 26,
+                fontSize   = 20,
                 fontFamily = decoFont,
                 color      = hijriMonth == 9 and "primary" or "secondary",
             })
         else
             hijriLabel = ui.label({
                 text       = hijriDate,
-                fontSize   = 13,
+                fontSize   = 12,
                 fontWeight = "semibold",
                 color      = hijriMonth == 9 and "primary" or "secondary",
             })
         end
         dateRow = ui.row({ align = "center", justify = "space_between" }, {
-            ui.label({ text = gregorianDate, fontSize = 12, color = "on_surface_variant" }),
+            ui.label({ text = gregorianDate, fontSize = 11, color = "on_surface_variant" }),
             hijriLabel,
         })
     end
@@ -386,9 +419,9 @@ local function render()
             })
             banner = ui.column({ align = "center", gap = 4, paddingV = 6 }, bannerChildren)
         else
-            banner = ui.column({ align = "center", gap = 2, paddingV = 6 }, {
-                ui.label({ text = label .. " " .. noctalia.tr("panel.in"), fontSize = 12, color = "on_surface_variant" }),
-                ui.label({ text = formatCountdown(secondsToNext), fontSize = 26,
+            banner = ui.column({ align = "center", gap = 2, paddingV = 4 }, {
+                ui.label({ text = label .. " " .. noctalia.tr("panel.in"), fontSize = 11, color = "on_surface_variant" }),
+                ui.label({ text = formatCountdown(secondsToNext), fontSize = 22,
                     fontWeight = "bold", color = aColor }),
             })
         end
@@ -438,10 +471,10 @@ local function render()
             radius   = isNext and 10 or nil,
         }, {
             ui.row({ align = "center", gap = 10 }, {
-                ui.glyph({ name = icon, size = 14, color = nameClr }),
-                ui.label({ text = label, fontSize = 14, fontWeight = weight, color = nameClr }),
+                ui.glyph({ name = icon, size = 13, color = nameClr }),
+                ui.label({ text = label, fontSize = 13, fontWeight = weight, color = nameClr }),
             }),
-            ui.label({ text = p.time, fontSize = 14, fontWeight = weight, color = timeClr }),
+            ui.label({ text = p.time, fontSize = 13, fontWeight = weight, color = timeClr }),
         })
 
         -- Sunrise between Fajr and Dhuhr
@@ -462,25 +495,25 @@ local function render()
     -- ── Assemble ──────────────────────────────────────────────────────────────
     local children = { header }
     if dateRow then children[#children+1] = dateRow end
-    children[#children+1] = ui.separator({ spacing = 4, color = "outline", opacity = 0.2 })
+    children[#children+1] = ui.separator({ spacing = 2, color = "outline", opacity = 0.2 })
     children[#children+1] = ui.row({ gap = 4, align = "center" }, {
         ui.button({ text = noctalia.tr("panel.tabs.prayers"), variant = activeTab == "prayers" and "primary" or "ghost",
-            flexGrow = 1, onClick = "onTabPrayers" }),
+            flexGrow = 1, height = 30, fontSize = 12, onClick = "onTabPrayers" }),
         ui.button({ text = noctalia.tr("panel.tabs.calendar"), variant = activeTab == "calendar" and "primary" or "ghost",
-            flexGrow = 1, onClick = "onTabCalendar" }),
+            flexGrow = 1, height = 30, fontSize = 12, onClick = "onTabCalendar" }),
     })
-    children[#children+1] = ui.separator({ spacing = 4, color = "outline", opacity = 0.15 })
+    children[#children+1] = ui.separator({ spacing = 2, color = "outline", opacity = 0.15 })
 
     if activeTab == "prayers" then
         local prayerContent = {}
         if banner then prayerContent[#prayerContent + 1] = banner end
         if #rows > 0 then prayerContent[#prayerContent + 1] = ui.column({ gap = 1 }, rows) end
-        children[#children+1] = ui.scroll({ key = "mawaqit-prayers", flexGrow = 1, gap = 8, align = "stretch" }, prayerContent)
+        children[#children+1] = ui.scroll({ key = "mawaqit-prayers", flexGrow = 1, gap = 6, align = "stretch" }, prayerContent)
     else
-        children[#children+1] = ui.scroll({ key = "mawaqit-calendar", flexGrow = 1, gap = 8, align = "stretch" }, { calendarView() })
+        children[#children+1] = ui.scroll({ key = "mawaqit-calendar", flexGrow = 1, gap = 6, align = "stretch" }, { calendarView() })
     end
 
-    panel.render(ui.column({ flexGrow = 1, gap = 8 }, children))
+    panel.render(ui.column({ flexGrow = 1, gap = 6 }, children))
 end
 
 -- ── State watchers ────────────────────────────────────────────────────────────
